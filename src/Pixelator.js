@@ -55,101 +55,10 @@ function rgb_to_hsl(_r, _g, _b) {
 
   return [h, s, l];
 }
-// from http://stackoverflow.com/a/13587077/1204332
-function color_distance(v1, v2) {
-  let d = 0;
-
-  for (let i = 0; i < v1.length; i++) {
-    d += (v1[i] - v2[i]) * (v1[i] - v2[i]);
-  }
-  return Math.sqrt(d);
-};
 
 function getCSSHsl(hsl) {
-  return `hsl(${hsl[0]*360}, ${hsl[1]*100}%, ${hsl[2]*100}%)`;
+  return `hsl(${Math.floor(hsl[0]*360)}, ${Math.floor(hsl[1]*100)}%, ${Math.floor(hsl[2]*100)}%)`;
 }
-
-function pixel_data_to_key(pixel_data) {
-  // console.log(pixel_data)
-  return pixel_data[0].toString() + '-' + pixel_data[1].toString() + '-' + pixel_data[2].toString();
-}
-
-function draw(img) {
-  var canvas = document.createElement('canvas');
-  document.body.appendChild(canvas);
-  var context = canvas.getContext('2d');
-  context.drawImage(img, 0, 0, canvas.width, canvas.height);
-  // img.style.display = 'none';
-  var image_data = context.getImageData(0, 0, canvas.width, canvas.height);
-  let data = image_data.data;
-
-
-  context.drawImage(img, 0, 0, canvas.width, canvas.height);
-  data = context.getImageData(0, 0, canvas.width, canvas.height).data;
-
-  const original_pixels = [];
-  for (let i = 0; i < data.length; i += 4) {
-    const rgb = data.slice(i, i + 3);
-    const hsl = rgb_to_hsl(rgb[0], rgb[1], rgb[2]);
-    original_pixels.push(hsl);
-  }
-
-  const group_headers = [];
-  const groups = {};
-  for (let i = 0; i < original_pixels.length; i += 1) {
-    if (group_headers.length == 0) {
-      group_headers.push(original_pixels[i]);
-    }
-    let group_found = false;
-    for (let j = 0; j < group_headers.length; j += 1) {
-      // if a similar color was already observed
-      if (color_distance(original_pixels[i], group_headers[j]) < 0.8) {
-        group_found = true;
-        if (!(pixel_data_to_key(original_pixels[i]) in groups)) {
-          groups[pixel_data_to_key(original_pixels[i])] = group_headers[j];
-        }
-      }
-      if (group_found) {
-        break;
-      }
-    }
-    if (!group_found) {
-      if (group_headers.indexOf(original_pixels[i]) == -1) {
-        group_headers.push(original_pixels[i]);
-      }
-      if (!(pixel_data_to_key(original_pixels[i]) in groups)) {
-        groups[pixel_data_to_key(original_pixels[i])] = original_pixels[i];
-      }
-    }
-  }
-  console.log(group_headers);
-  posterize(context, image_data, groups)
-}
-
-
-function posterize(context, image_data, palette) {
-  for (var i = 0; i < image_data.data.length; i += 4) {
-    let rgb = image_data.data.slice(i, i + 3);
-    const hsl = rgb_to_hsl(rgb[0], rgb[1], rgb[2]);
-    const key = pixel_data_to_key(hsl);
-    if (key in palette) {
-      const new_hsl = palette[key];
-
-      const new_rgb = hsl_to_rgb(new_hsl[0], new_hsl[1], new_hsl[2]);
-      rgb = hsl_to_rgb(hsl);
-      image_data.data[i] = new_rgb[0];
-      image_data.data[i + 1] = new_rgb[1];
-      image_data.data[i + 2] = new_rgb[2];
-    }
-  }
-  context.putImageData(image_data, 0, 0);
-}
-
-// function getColor({ r, g, b, a }) {
-//   const new_rgb = hsl_to_rgb(new_hsl[0], new_hsl[1], new_hsl[2]);
-
-// }
-
 
 function pixelateImage(originalImage, pixelationFactor) {
   const canvas = document.createElement("canvas");
@@ -158,6 +67,11 @@ function pixelateImage(originalImage, pixelationFactor) {
   const originalHeight = originalImage.height;
   const canvasWidth = originalWidth;
   const canvasHeight = originalHeight;
+  const totalWidthQty = Math.floor(originalWidth / pixelationFactor);
+  const totalHeightQty = Math.floor(originalWidth / pixelationFactor);
+
+  console.log({ totalWidthQty, totalHeightQty })
+  
   canvas.width = canvasWidth;
   canvas.height = canvasHeight;
   context.drawImage(originalImage, 0, 0, originalWidth, originalHeight);
@@ -170,8 +84,11 @@ function pixelateImage(originalImage, pixelationFactor) {
 
   const result = [];
   const colorCollection = {};
+  const pixelInfomation = {};
   // const map;
 
+  let minHValue = 0.5;
+  let maxHValue = 0.5;
   let newY = 0;
   if (pixelationFactor !== 0) {
     for (let y = 0; y < originalHeight; y += pixelationFactor) {
@@ -188,8 +105,14 @@ function pixelateImage(originalImage, pixelationFactor) {
           originalImageData[pixelIndexPosition+2],
         );
 
-        if (!(hsl in colorCollection)) {
-          colorCollection[hsl.join('_')] = [ hsl ]
+        minHValue = Math.min(hsl[0], minHValue);
+        maxHValue = Math.max(hsl[0], maxHValue);
+
+        if (!(hsl.join('_') in colorCollection)) {
+          colorCollection[hsl.join('_')] = [ [ newX, newY ] ]
+        }
+        else {
+          colorCollection[hsl.join('_')].push([ newX, newY ]);
         }
         
         const color = 'rgba(' +
@@ -199,52 +122,181 @@ function pixelateImage(originalImage, pixelationFactor) {
           originalImageData[pixelIndexPosition + 3] / 255 //a
         + ')';
 
-        const colorHsla = `hsla(${hsl[0]*360}, ${hsl[1]*100}%, ${hsl[2]*100}%, ${originalImageData[pixelIndexPosition + 3] / 255})`
-        // const replaceHsl = JSON.parse(simularColor);
-        // const colorHsla = `hsla(${replaceHsl[0]*360}, ${replaceHsl[1]*100}%, ${replaceHsl[2]*100}%, ${originalImageData[pixelIndexPosition + 3] / 255})`
+        // const colorHsla = `hsl(${Math.floor(hsl[0]*360)}, ${Math.floor(hsl[1]*100)}%, ${Math.floor(hsl[2]*100)}%)`
+        const colorHsla = `hsla(${Math.floor(hsl[0]*360)}, ${Math.floor(hsl[1]*100)}%, ${Math.floor(hsl[2]*100)}%, ${originalImageData[pixelIndexPosition + 3] / 255})`
 
         context.fillStyle = color;
 
         result.push({
-          x: newX * scale,
-          y: newY * scale,
+          x: newX * pixelationFactor,
+          y: newY * pixelationFactor,
           fill: colorHsla,
           // temp: simularColor,
         })
+
+        pixelInfomation[`${newX}_${newY}`] = {
+          pos: `${newX}_${newY}`,
+          color: hsl,
+        };
         
         context.fillRect(x, y, pixelationFactor, pixelationFactor);
       }
     }
   }
 
+  console.log({result})
 
-  const colors = Object.keys(colorCollection);
-  colors.forEach(_hsl1 => {
-    colors.forEach(_hsl2 => {
-      if (color_distance(_hsl1.split('_'), _hsl2.split('_')) < 0.1) {
-        colorCollection[_hsl1].push(_hsl2.split('_'));
+  console.log(pixelInfomation);
+
+
+  for (let x = 1; x <= totalWidthQty; x++) {
+    for (let y = 1; y <= totalHeightQty; y++) {
+      
+      const leftTop = (x === 0 || y === 0) ? null : `${x-1}_${y-1}`;
+      const centerTop = (y === 0) ? null : `${x}_${y-1}`;
+      const rightTop = (x === totalWidthQty || y < 1) ? null : `${x+1}_${y-1}`;
+      const leftCenter = x === 0 ? null : `${x-1}_${y}`;
+      const rightCenter = x === totalWidthQty ? null : `${x+1}_${y}`;
+      const leftBottom = (x === 0 || y === totalHeightQty) ? null : `${x-1}_${y+1}`;
+      const centerBottom = y === totalHeightQty ? null : `${x}_${y+1}`;
+      const rightBottom = (x === totalWidthQty || y === totalHeightQty) ? null : `${x+1}_${y+1}`;
+
+
+      const siblings = [
+        pixelInfomation[leftTop],
+        pixelInfomation[centerTop],
+        pixelInfomation[rightTop],
+        pixelInfomation[leftCenter],
+        pixelInfomation[rightCenter],
+        pixelInfomation[leftBottom],
+        pixelInfomation[centerBottom],
+        pixelInfomation[rightBottom],
+      ]
+      
+
+      pixelInfomation[`${x}_${y}`].siblings = siblings.map(_sibling => {
+        if (_sibling) {
+          const isSimularColor = _isSimularColor(pixelInfomation[`${x}_${y}`].color, _sibling.color, 0.2);
+          return isSimularColor ? _sibling : undefined;
+        }
+      })
+      pixelInfomation[`${x}_${y}`].siblings = pixelInfomation[`${x}_${y}`].siblings.filter(_sibling => !!_sibling);
+    }
+  }
+
+  console.log(pixelInfomation);
+
+  const myColor = [];
+  for (let x = 1; x <= totalWidthQty; x++) {
+    for (let y = 1; y <= totalHeightQty; y++) {
+      const self = pixelInfomation[`${x}_${y}`];
+      const currentColorItem = myColor?.find(_color => _color.pixels.includes(`${x}_${y}`));
+      if (currentColorItem) {
+        currentColorItem.colors = [ ...new Set([...currentColorItem.colors, ...self.siblings.map(_sibling => _sibling.color)]) ]
+        currentColorItem.pixels = [ ...new Set([...currentColorItem.pixels, ...self.siblings.map(_sibling => _sibling.pos)]) ]
+
       }
-    })
-  })
+      else {
+        myColor.push({
+          colors: [ self.color, ...self.siblings.map(_sibling => _sibling.color) ],
+          pixels: [ self.pos, ...self.siblings.map(_sibling => _sibling.pos) ]
+        })
+      }
+    }
+  }
+  
+  console.log(myColor)
 
-  console.log(colorCollection)
+
+
+
+
+
+
+
+  function _isSimularColor(_v1, _v2, m) {
+    if (!_v1 || !_v2) return undefined;
+    const v1 = _v1.map(v => typeof v === 'string' ? Number(v) : v);
+    const v2 = _v2.map(v => typeof v === 'string' ? Number(v) : v);
+
+    const d_h = Math.abs(v1[0] - v2[0]);
+    const d_s = Math.abs(v1[1] - v2[1]);
+    const d_l = Math.abs(v1[2] - v2[2]);
+    
+    return d_h < (0.166 * m) && d_s < (0.2 * m) && d_l < (0.2 * m);
+  };
+
+  function _mergeHSL(_v1, _v2) {
+    return [ (_v1[0] + _v2[0])/2 , (_v1[1] + _v2[1])/2, (_v1[2] + _v2[2])/2 ]
+  }
+
+
+  // const colors = Object.keys(colorCollection);
+
+  
+  // const newColorCollection = [];
+  
+  // colors.forEach((_hsl, i) => {
+  //   const sibling = [];
+  //   const hsl = _hsl.split('_').map(_v => typeof _v === 'string' ? Number(_v) : _v);
+  //   const isBright = hsl[2] > 0.85;
+  //   const isDark = hsl[2] < 0.15;
+    
+  //   if (!isBright && !isDark) {
+      
+  //     const closeColor = newColorCollection.find(_c => _isSimularColor(hsl, _c.base, (1 / Math.sqrt(_c.group.length))));
+  //     if (closeColor !== undefined) {
+  //       const c_hsl = closeColor.base;
+  //       closeColor.base = _mergeHSL(hsl, c_hsl);
+  //       closeColor.group.push(hsl);
+  //     }
+  //     else {
+  //       newColorCollection.push({
+  //         base: hsl,
+  //         group: [ hsl ],
+  //       })
+  //     }
+      
+  //     colors.push(hsl);
+
+
+  //     for (let i = 0; i < newColorCollection.length; i++) {
+  //       const closeColor = newColorCollection.find((_c, j) => {
+  //         return i !== j && _isSimularColor(newColorCollection[i].base, _c.base, 0.7 / newColorCollection[i].group.length);
+  //       });
+  //       if (closeColor) {
+  //         console.log('merge')
+  //         closeColor.base = _mergeHSL(newColorCollection[i].base, closeColor.base);
+  //         closeColor.group = [ ...closeColor.group, ...newColorCollection[i].group ].sort((a, b) => (a[1] + a[2]) - (b[1] + b[2]))
+  //         newColorCollection.splice(i, 1);
+  //       }
+  //     }
+      
+  //   }
+    
+  // })
+
+  // console.log(Object.keys(colorCollection).length)
+  // console.log(newColorCollection)
 
   return {
     data: result,
-    base64Content: canvas.toDataURL(),
-    colorCollection
+    myColor
+    // base64Content: canvas.toDataURL(),
+    // colorCollection: newColorCollection.sort((a, b) => a.base[0] - b.base[0])
   };
 }
 
 
-const scale = 20;
-
-const Pixelator = ({ src }) => {
+const Pixelator = ({ src, scale }) => {
 
   const rootRef = useRef();
-  const [ base64Data, setBase64Data  ] = useState();
   const [ data, setData ] = useState();
   const [ colorData, setColorData ] = useState();
+  const [ imgSize, setImgSize ] = useState();
+  // if (data) {
+  //   console.log(JSON.stringify(data.map(_item => _item.fill)))
+  // }
   
   useEffect(() => {
     handleInitPixelator();
@@ -255,6 +307,7 @@ const Pixelator = ({ src }) => {
       const img = document.createElement('img');
       img.src = src;
       img.onload = function() {
+        setImgSize([img.width, img.height]);
         resolve(img);
       }
     })
@@ -263,32 +316,59 @@ const Pixelator = ({ src }) => {
   
   async function handleInitPixelator() {
     const image = await handlePreloadImage();
-    const { data, base64Content, colorCollection } = pixelateImage(image, scale);
+    const { data, myColor, base64Content, colorCollection } = pixelateImage(image, scale);
     // setBase64Data(base64Content);
     setData(data)
-    setColorData(Object.values(colorCollection));
+    setColorData(myColor)
+    // setColorData(Object.values(colorCollection));
   }
 
+
+  console.log(colorData)
+
   return (
-    <div ref={rootRef}>
-      <img width="400px" height="400px" src={src} />
-      {/* { base64Data && <img src={base64Data} /> } */}
-      { data &&
-        <svg width="400px" height="400px" viewBox={`0 0 ${data.at(-1).x} ${data.at(-1).y}`} viewPort={`0 0 ${data.at(-1).x} ${data.at(-1).y}`}>
-          { data.map((_item, i) =>
-            <rect key={i} width={scale * 1} height={scale * 1} {..._item} />
-          ) }
-        </svg>
-      }
+    <div ref={rootRef} style={{ display: 'flex', padding: '20px' }}>
       <div>
-      { colorData?.map((_group, i) =>
-          <div key={i} style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '4px' }}>
-            { _group.map((_color, j) =>
-              <div key={j} style={{ width: '10px', height: '10px', background: getCSSHsl(_color) }}></div>
+        <img src={src} />
+      </div>
+      {/* { base64Data && <img src={base64Data} /> } */}
+      <div>
+        { (data && imgSize) &&
+          <svg width={`${imgSize[0]}px`} height={`${imgSize[1]}px`} viewBox={`0 0 ${data.at(-1).x} ${data.at(-1).y}`} viewPort={`0 0 ${data.at(-1).x} ${data.at(-1).y}`}>
+            { data.map((_item, i) =>
+              <rect key={i} width={scale * 1} height={scale * 1} {..._item} />
+            ) }
+          </svg>
+        }
+        <br />
+        { data && `${data.length} blocks.` }
+      </div>
+      <div>
+        { (colorData) &&
+          <svg width={`${imgSize[0]}px`} height={`${imgSize[1]}px`} viewBox={`0 0 ${data.at(-1).x} ${data.at(-1).y}`} viewPort={`0 0 ${data.at(-1).x} ${data.at(-1).y}`}>
+            { colorData.map((_item, i) =>
+              <React.Fragment key={i}>
+                { _item.pixels.map((_pixel, j) =>
+                  <rect key={j} x={_pixel.split('_')[0]*scale} y={_pixel.split('_')[1]*scale} width={scale * 1} height={scale * 1} fill={getCSSHsl(_item.colors[0])} />
+                ) }
+              </React.Fragment>
+            ) }
+          </svg>
+        }
+        <br />
+        { colorData && `${colorData.length} blocks.` }
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap' }}>
+      {/* { colorData?.map((_color, i) =>
+          <div key={i} style={{ display: 'flex', flexWrap: 'wrap', gap: '2px', padding: '0 20px', marginBottom: '12px', width: '50%', boxSizing: 'border-box' }}>
+            <div style={{ width: '8px', height: '8px', background: getCSSHsl(_color.base) }}></div>
+
+            { _color.group.map((_color, j) =>
+              <div key={j} style={{ width: '4px', height: '4px', background: getCSSHsl(_color) }}></div>
             ) }
           </div>
         )
-      }
+      } */}
       </div>
     </div>
   )
