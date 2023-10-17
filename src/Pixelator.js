@@ -1,5 +1,36 @@
 import React, { useEffect, useRef, useState } from 'react';
 
+function hex_to_hsl(hex) {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+
+  let r = parseInt(result[1], 16);
+  let g = parseInt(result[2], 16);
+  let b = parseInt(result[3], 16);
+
+  r /= 255; g /= 255; b /= 255;
+  let max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h, s, l = (max + min) / 2;
+
+  if (max == min){
+      h = s = 0; // achromatic
+  } else {
+      var d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      switch(max) {
+          case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+          case g: h = (b - r) / d + 2; break;
+          case b: h = (r - g) / d + 4; break;
+      }
+      
+      h /= 6;
+  }
+
+  h = Math.round(h*360);
+  s = Math.round(s*100);
+  l = Math.round(l*100);
+
+  return [ h/360, s/100, l/100, 1 ];
+}
 function hsl_to_rgb(h, s, l) {
   let r, g, b;
 
@@ -25,10 +56,11 @@ function hsl_to_rgb(h, s, l) {
   return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
 }
 // from http://stackoverflow.com/questions/2353211/hsl-to-rgb-color-conversion
-function rgb_to_hsl(_r, _g, _b) {
+function rgba_to_hsla(_r, _g, _b, _a) {
   const r = _r / 255;
   const g = _g / 255;
   const b = _b / 255;
+  const a = _a / 255;
 
   const max = Math.max(r, g, b);
   const min = Math.min(r, g, b);
@@ -53,11 +85,15 @@ function rgb_to_hsl(_r, _g, _b) {
     h /= 6;
   }
 
-  return [h, s, l];
+  function _fixedNum(num) {
+    return Math.floor(num * 100) / 100;
+  }
+
+  return [_fixedNum(h), _fixedNum(s), _fixedNum(l), _fixedNum(a)];
 }
 
-function getCSSHsl(hsl) {
-  return `hsl(${Math.floor(hsl[0]*360)}, ${Math.floor(hsl[1]*100)}%, ${Math.floor(hsl[2]*100)}%)`;
+function getCSSHsla(hsla) {
+  return `hsla(${Math.floor(hsla[0]*360)}, ${Math.floor(hsla[1]*100)}%, ${Math.floor(hsla[2]*100)}%, ${hsla[3]})`;
 }
 
 function pixelateImage(originalImage, pixelationFactor) {
@@ -70,8 +106,6 @@ function pixelateImage(originalImage, pixelationFactor) {
   const totalWidthQty = Math.floor(originalWidth / pixelationFactor);
   const totalHeightQty = Math.floor(originalWidth / pixelationFactor);
 
-  console.log({ totalWidthQty, totalHeightQty })
-  
   canvas.width = canvasWidth;
   canvas.height = canvasHeight;
   context.drawImage(originalImage, 0, 0, originalWidth, originalHeight);
@@ -85,7 +119,6 @@ function pixelateImage(originalImage, pixelationFactor) {
   const result = [];
   const colorCollection = {};
   const pixelInfomation = {};
-  // const map;
 
   let minHValue = 0.5;
   let maxHValue = 0.5;
@@ -99,20 +132,21 @@ function pixelateImage(originalImage, pixelationFactor) {
         // extracting the position of the sample pixel
         const pixelIndexPosition = (x + y * originalWidth) * 4;
         // drawing a square replacing the current pixels
-        const hsl = rgb_to_hsl(
+        const hsla = rgba_to_hsla(
           originalImageData[pixelIndexPosition],
           originalImageData[pixelIndexPosition+1],
           originalImageData[pixelIndexPosition+2],
+          originalImageData[pixelIndexPosition+3],
         );
 
-        minHValue = Math.min(hsl[0], minHValue);
-        maxHValue = Math.max(hsl[0], maxHValue);
+        minHValue = Math.min(hsla[0], minHValue);
+        maxHValue = Math.max(hsla[0], maxHValue);
 
-        if (!(hsl.join('_') in colorCollection)) {
-          colorCollection[hsl.join('_')] = [ [ newX, newY ] ]
+        if (!(hsla.join('_') in colorCollection)) {
+          colorCollection[hsla.join('_')] = [ [ newX, newY ] ]
         }
         else {
-          colorCollection[hsl.join('_')].push([ newX, newY ]);
+          colorCollection[hsla.join('_')].push([ newX, newY ]);
         }
         
         const color = 'rgba(' +
@@ -123,7 +157,7 @@ function pixelateImage(originalImage, pixelationFactor) {
         + ')';
 
         // const colorHsla = `hsl(${Math.floor(hsl[0]*360)}, ${Math.floor(hsl[1]*100)}%, ${Math.floor(hsl[2]*100)}%)`
-        const colorHsla = `hsla(${Math.floor(hsl[0]*360)}, ${Math.floor(hsl[1]*100)}%, ${Math.floor(hsl[2]*100)}%, ${originalImageData[pixelIndexPosition + 3] / 255})`
+        const colorHsla = `hsla(${Math.floor(hsla[0]*360)}, ${Math.floor(hsla[1]*100)}%, ${Math.floor(hsla[2]*100)}%, ${hsla[3]})`;
 
         context.fillStyle = color;
 
@@ -136,18 +170,13 @@ function pixelateImage(originalImage, pixelationFactor) {
 
         pixelInfomation[`${newX}_${newY}`] = {
           pos: `${newX}_${newY}`,
-          color: hsl,
+          color: hsla,
         };
         
         context.fillRect(x, y, pixelationFactor, pixelationFactor);
       }
     }
   }
-
-  console.log({result})
-
-  console.log(pixelInfomation);
-
 
   for (let x = 1; x <= totalWidthQty; x++) {
     for (let y = 1; y <= totalHeightQty; y++) {
@@ -176,7 +205,7 @@ function pixelateImage(originalImage, pixelationFactor) {
 
       pixelInfomation[`${x}_${y}`].siblings = siblings.map(_sibling => {
         if (_sibling) {
-          const isSimularColor = _isSimularColor(pixelInfomation[`${x}_${y}`].color, _sibling.color, 0.2);
+          const isSimularColor = _isSimularColor(pixelInfomation[`${x}_${y}`].color, _sibling.color, 1);
           return isSimularColor ? _sibling : undefined;
         }
       })
@@ -184,7 +213,7 @@ function pixelateImage(originalImage, pixelationFactor) {
     }
   }
 
-  console.log(pixelInfomation);
+  // console.log(pixelInfomation);
 
   const myColor = [];
   for (let x = 1; x <= totalWidthQty; x++) {
@@ -192,27 +221,28 @@ function pixelateImage(originalImage, pixelationFactor) {
       const self = pixelInfomation[`${x}_${y}`];
       const currentColorItem = myColor?.find(_color => _color.pixels.includes(`${x}_${y}`));
       if (currentColorItem) {
-        currentColorItem.colors = [ ...new Set([...currentColorItem.colors, ...self.siblings.map(_sibling => _sibling.color)]) ]
+        // currentColorItem.colors = [...currentColorItem.colors, ...self.siblings.map(_sibling => _sibling.color.join('_'))]
+        // currentColorItem.pixels = [...currentColorItem.pixels, ...self.siblings.map(_sibling => _sibling.pos)]
+
+        currentColorItem.colors = [ ...new Set([...currentColorItem.colors, ...self.siblings.map(_sibling => _sibling.color.join('_'))]) ]
         currentColorItem.pixels = [ ...new Set([...currentColorItem.pixels, ...self.siblings.map(_sibling => _sibling.pos)]) ]
 
       }
       else {
         myColor.push({
-          colors: [ self.color, ...self.siblings.map(_sibling => _sibling.color) ],
+          colors: [ self.color.join('_'), ...self.siblings.map(_sibling => _sibling.color.join('_')) ],
           pixels: [ self.pos, ...self.siblings.map(_sibling => _sibling.pos) ]
         })
       }
     }
   }
+
+  myColor.forEach(_item => {
+    _item.colors = [ ...new Set(_item.colors) ]
+    _item.selected = _item.colors[0]
+    _item.pixels = [ ...new Set(_item.pixels) ]
+  })
   
-  console.log(myColor)
-
-
-
-
-
-
-
 
   function _isSimularColor(_v1, _v2, m) {
     if (!_v1 || !_v2) return undefined;
@@ -226,64 +256,15 @@ function pixelateImage(originalImage, pixelationFactor) {
     return d_h < (0.166 * m) && d_s < (0.2 * m) && d_l < (0.2 * m);
   };
 
-  function _mergeHSL(_v1, _v2) {
-    return [ (_v1[0] + _v2[0])/2 , (_v1[1] + _v2[1])/2, (_v1[2] + _v2[2])/2 ]
-  }
+  // function _mergeHSL(_v1, _v2) {
+  //   return [ (_v1[0] + _v2[0])/2 , (_v1[1] + _v2[1])/2, (_v1[2] + _v2[2])/2 ]
+  // }
 
 
-  // const colors = Object.keys(colorCollection);
-
-  
-  // const newColorCollection = [];
-  
-  // colors.forEach((_hsl, i) => {
-  //   const sibling = [];
-  //   const hsl = _hsl.split('_').map(_v => typeof _v === 'string' ? Number(_v) : _v);
-  //   const isBright = hsl[2] > 0.85;
-  //   const isDark = hsl[2] < 0.15;
-    
-  //   if (!isBright && !isDark) {
-      
-  //     const closeColor = newColorCollection.find(_c => _isSimularColor(hsl, _c.base, (1 / Math.sqrt(_c.group.length))));
-  //     if (closeColor !== undefined) {
-  //       const c_hsl = closeColor.base;
-  //       closeColor.base = _mergeHSL(hsl, c_hsl);
-  //       closeColor.group.push(hsl);
-  //     }
-  //     else {
-  //       newColorCollection.push({
-  //         base: hsl,
-  //         group: [ hsl ],
-  //       })
-  //     }
-      
-  //     colors.push(hsl);
-
-
-  //     for (let i = 0; i < newColorCollection.length; i++) {
-  //       const closeColor = newColorCollection.find((_c, j) => {
-  //         return i !== j && _isSimularColor(newColorCollection[i].base, _c.base, 0.7 / newColorCollection[i].group.length);
-  //       });
-  //       if (closeColor) {
-  //         console.log('merge')
-  //         closeColor.base = _mergeHSL(newColorCollection[i].base, closeColor.base);
-  //         closeColor.group = [ ...closeColor.group, ...newColorCollection[i].group ].sort((a, b) => (a[1] + a[2]) - (b[1] + b[2]))
-  //         newColorCollection.splice(i, 1);
-  //       }
-  //     }
-      
-  //   }
-    
-  // })
-
-  // console.log(Object.keys(colorCollection).length)
-  // console.log(newColorCollection)
 
   return {
     data: result,
     myColor
-    // base64Content: canvas.toDataURL(),
-    // colorCollection: newColorCollection.sort((a, b) => a.base[0] - b.base[0])
   };
 }
 
@@ -291,12 +272,11 @@ function pixelateImage(originalImage, pixelationFactor) {
 const Pixelator = ({ src, scale }) => {
 
   const rootRef = useRef();
+  const colorPickerRef = useRef();
+  const colorDataRef = useRef();
   const [ data, setData ] = useState();
   const [ colorData, setColorData ] = useState();
   const [ imgSize, setImgSize ] = useState();
-  // if (data) {
-  //   console.log(JSON.stringify(data.map(_item => _item.fill)))
-  // }
   
   useEffect(() => {
     handleInitPixelator();
@@ -316,61 +296,87 @@ const Pixelator = ({ src, scale }) => {
   
   async function handleInitPixelator() {
     const image = await handlePreloadImage();
-    const { data, myColor, base64Content, colorCollection } = pixelateImage(image, scale);
-    // setBase64Data(base64Content);
+    const { data, myColor } = pixelateImage(image, scale);
+    
     setData(data)
     setColorData(myColor)
-    // setColorData(Object.values(colorCollection));
   }
-
 
   console.log(colorData)
 
-  return (
-    <div ref={rootRef} style={{ display: 'flex', padding: '20px' }}>
-      <div>
-        <img src={src} />
-      </div>
-      {/* { base64Data && <img src={base64Data} /> } */}
-      <div>
-        { (data && imgSize) &&
-          <svg width={`${imgSize[0]}px`} height={`${imgSize[1]}px`} viewBox={`0 0 ${data.at(-1).x} ${data.at(-1).y}`} viewPort={`0 0 ${data.at(-1).x} ${data.at(-1).y}`}>
-            { data.map((_item, i) =>
-              <rect key={i} width={scale * 1} height={scale * 1} {..._item} />
-            ) }
-          </svg>
-        }
-        <br />
-        { data && `${data.length} blocks.` }
-      </div>
-      <div>
-        { (colorData) &&
-          <svg width={`${imgSize[0]}px`} height={`${imgSize[1]}px`} viewBox={`0 0 ${data.at(-1).x} ${data.at(-1).y}`} viewPort={`0 0 ${data.at(-1).x} ${data.at(-1).y}`}>
-            { colorData.map((_item, i) =>
-              <React.Fragment key={i}>
-                { _item.pixels.map((_pixel, j) =>
-                  <rect key={j} x={_pixel.split('_')[0]*scale} y={_pixel.split('_')[1]*scale} width={scale * 1} height={scale * 1} fill={getCSSHsl(_item.colors[0])} />
-                ) }
-              </React.Fragment>
-            ) }
-          </svg>
-        }
-        <br />
-        { colorData && `${colorData.length} blocks.` }
-      </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap' }}>
-      {/* { colorData?.map((_color, i) =>
-          <div key={i} style={{ display: 'flex', flexWrap: 'wrap', gap: '2px', padding: '0 20px', marginBottom: '12px', width: '50%', boxSizing: 'border-box' }}>
-            <div style={{ width: '8px', height: '8px', background: getCSSHsl(_color.base) }}></div>
+  function handleClickColor(index) {
+    // const colorPicker = document.createElement('input');
+    // colorPicker.type = 'color';
+    colorDataRef.current = {
+      index: index,
+      data: colorData,
+    }
+    colorPickerRef.current.click();
+  }
 
-            { _color.group.map((_color, j) =>
-              <div key={j} style={{ width: '4px', height: '4px', background: getCSSHsl(_color) }}></div>
+  function handleChangeColor(e) {
+    const { index, data } = colorDataRef.current;
+    data[index].selected = hex_to_hsl(e.target.value).join('_');
+    // console.log(e.target.value);
+    setColorData([...colorDataRef.current.data])
+
+  }
+
+  function handleFinishChangeColor() {
+    // console.log('end')
+    // setColorData([...colorDataRef.current.data])
+  }
+
+
+
+  return (
+    <>
+      <input type="color" ref={colorPickerRef} onChange={handleChangeColor} onBlur={handleFinishChangeColor} />
+      <div ref={rootRef} style={{ display: 'flex', padding: '20px', background: '#666' }}>
+        <div>
+          <img src={src} />
+        </div>
+        {/* { base64Data && <img src={base64Data} /> } */}
+        <div>
+          { (data && imgSize) &&
+            <svg width={`${imgSize[0]}px`} height={`${imgSize[1]}px`} viewBox={`0 0 ${data.at(-1).x} ${data.at(-1).y}`} viewPort={`0 0 ${data.at(-1).x} ${data.at(-1).y}`}>
+              { data.map((_item, i) =>
+                <rect key={i} width={scale * 1} height={scale * 1} x={_item.x} y={_item.y} fill={_item.fill} />
+              ) }
+            </svg>
+          }
+          <br />
+          { data && `${data.length} blocks.` }
+        </div>
+        <div>
+          { (colorData) &&
+            <svg width={`${imgSize[0]}px`} height={`${imgSize[1]}px`} viewBox={`0 0 ${data.at(-1).x} ${data.at(-1).y}`} viewPort={`0 0 ${data.at(-1).x} ${data.at(-1).y}`}>
+              { colorData.map((_item, i) =>
+                <React.Fragment key={i}>
+                  { _item.pixels.map((_pixel, j) =>
+                    <rect key={j} x={(_pixel.split('_')[0]-1)*scale} y={(_pixel.split('_')[1]-1)*scale} width={scale * 1} height={scale * 1} fill={getCSSHsla(_item.selected.split('_'))} />
+                  ) }
+                </React.Fragment>
+              ) }
+            </svg>
+          }
+          <br />
+          { colorData && `${colorData.length} blocks.` }
+        </div>
+      </div>
+      <div>
+        { colorData && colorData.map((_item, i) =>
+        <div key={i} style={{ display: 'flex', alignItems: 'center'}}>
+          <div onClick={() => handleClickColor(i)} style={{ background: getCSSHsla(_item.selected.split('_')), width: '30px', height: '30px' }}></div>
+          <div style={{ display: 'flex', padding: '20px'}}>
+            { _item.colors.map((_color, j) =>
+              <div key={j} style={{ border: '1px solid', background: getCSSHsla(_color.split('_')), width: '20px', height: '20px' }}></div>
             ) }
           </div>
-        )
-      } */}
+        </div>
+        ) }
       </div>
-    </div>
+    </>
   )
 }
 
